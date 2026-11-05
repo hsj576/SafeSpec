@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: "If you use SafeSpec in your research, please cite the following work."
+title: "SafeSpec: Asynchronous Safety Probing for Speculative Decoding"
+abstract: >
+  SafeSpec is an open-source reference implementation of asynchronous
+  safety probing for LLM speculative decoding.  A small, trainable safety
+  probe (Qwen3Guard-Stream-0.6B + LoRA) is inserted into the draft/verify
+  loop of a speculative decoder (Qwen3-0.6B draft + Qwen3-8B target) with
+  three latency-hiding optimisations (torch.compile, dedicated CUDA stream,
+  background-thread dispatch) so that the probe adds essentially zero
+  user-perceived wall-time while contributing streaming prompt-injection
+  detection at FNR < 2.5 %.
+authors:
+  - family-names: "SafeSpec Authors"
+version: "0.1.0"
+date-released: "2026-11-05"
+license: Apache-2.0
+repository-code: "https://github.com/hsj576/SafeSpec"
+keywords:
+  - speculative-decoding
+  - safety-probe
+  - prompt-injection-detection
+  - LoRA
+  - Qwen3Guard
