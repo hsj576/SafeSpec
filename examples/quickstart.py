@@ -17,11 +17,15 @@ Usage
         huggingface-cli download husj576/safespec-probe-qwen3guard-stream-0.6b \\
             --local-dir ./probe_ckpt
 
-3.  Run:
+3.  Run (merged single-dir, the recommended path):
+
+        python examples/quickstart.py --probe_path ./probe_ckpt
+
+    OR (base + external LoRA adapter, legacy):
 
         python examples/quickstart.py \\
-            --prompt "Summarise the last email from IT Support." \\
-            --lora_dir ./probe_ckpt/lora
+            --probe_path /path/to/Qwen3Guard-Stream-0.6B \\
+            --lora_dir   ./probe_ckpt/lora
 """
 from __future__ import annotations
 
@@ -29,13 +33,11 @@ import argparse
 import sys
 from pathlib import Path
 
-# allow running from a fresh checkout without `pip install -e .`
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-import torch
 
 from safespec import (BatchedGuardProbe, ProbeStats, SpecDecodeStats,
                       SpecDecoderWithProbe)
+from safespec.common import PROBE_MODEL_PATH
 
 
 def main() -> int:
@@ -45,19 +47,24 @@ def main() -> int:
         "Cover Q/K/V projections, the scaled dot-product, the softmax and "
         "multi-head attention."),
         help="user-side prompt to feed the agent")
+    ap.add_argument("--probe_path", default=str(PROBE_MODEL_PATH),
+                    help="path to the probe model dir.  If it contains "
+                         "model.safetensors + hijack_head.pt (the merged "
+                         "HF-release layout) the LoRA is already fused in.  "
+                         "Otherwise this should point at a fresh "
+                         "Qwen3Guard-Stream-0.6B base and you must supply "
+                         "--lora_dir.")
     ap.add_argument("--lora_dir", default=None,
-                    help="path to the LoRA adapter + hijack_head.pt "
-                         "(omit to run with the zero-shot Qwen3Guard-Stream)")
+                    help="OPTIONAL: path to an external LoRA adapter dir.  "
+                         "Leave unset when using the merged checkpoint.")
     ap.add_argument("--max_new_tokens", type=int, default=256)
     ap.add_argument("--k", type=int, default=5,
                     help="speculative draft length")
     args = ap.parse_args()
 
-    # 1.  Bring up the safety probe (optionally with LoRA + hijack head).
-    probe = BatchedGuardProbe(lora_dir=args.lora_dir)
+    probe = BatchedGuardProbe(model_path=args.probe_path,
+                              lora_dir=args.lora_dir)
 
-    # 2.  Bring up the speculative decoder with the probe injected and the
-    #     three latency-hiding tricks enabled.
     engine = SpecDecoderWithProbe(
         probe=probe,
         async_probe=True,
@@ -65,17 +72,13 @@ def main() -> int:
         defer_final_flush=True,
     )
 
-    # 3.  Tokenize the chat prompt using the target model's tokenizer.
     messages = [
         {"role": "system",
          "content": "You are a helpful assistant.  You may use tools to answer."},
         {"role": "user", "content": args.prompt},
     ]
-    # `apply_chat()` returns a 1-D LongTensor on CPU; generate_with_probe
-    # moves it to the target/draft devices internally.
     prompt_ids = engine.apply_chat(messages)
 
-    # 4.  Run speculative decoding with the probe side-car.
     stats = SpecDecodeStats()
     probe_stats = ProbeStats()
     output_ids = engine.generate_with_probe(
@@ -87,7 +90,6 @@ def main() -> int:
     )
     text = engine.tokenizer.decode(output_ids.tolist(), skip_special_tokens=True)
 
-    # 5.  Report.
     print("=" * 60)
     print("Generated text")
     print("=" * 60)
@@ -102,8 +104,8 @@ def main() -> int:
     print(f"probe_total_ms       = {probe_stats.probe_total_ms:8.1f}")
     print(f"probe_postwall_ms    = {probe_stats.probe_postwall_ms:8.1f}")
     last = probe_stats.asst_last_lora_hijack_prob
-    print(f"hijack probability   = {last:8.3f}   "
-          f"({'UNSAFE' if last > 0.9 else 'safe'})")
+    verdict = "UNSAFE" if last > 0.9 else "safe"
+    print(f"hijack probability   = {last:8.3f}   ({verdict})")
     return 0
 
 

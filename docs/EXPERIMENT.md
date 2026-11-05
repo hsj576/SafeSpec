@@ -115,7 +115,7 @@ Wall-clock: ~50 s epoch-0, ~27 s epoch-{1,2}.
 ```bash
 python scripts/eval_probe_offline.py \
     --dataset data/phase3_dataset.jsonl \
-    --lora_dir ./probe_ckpt/lora \
+    --probe_path ./probe_ckpt \
     --out outputs/offline.json
 ```
 
@@ -138,7 +138,7 @@ take last-token hidden state, apply hijack head). Expected:
 SAFESPEC_SINGLE_GPU=0 python scripts/run_e2e_spec.py \
     --dataset data/phase3_dataset.jsonl \
     --split test \
-    --lora_dir ./probe_ckpt/lora \
+    --probe_path ./probe_ckpt \
     --async_probe \
     --probe_batch_rounds 6 \
     --defer_final_flush \
@@ -194,7 +194,7 @@ goes to its own card:
 unset SAFESPEC_SINGLE_GPU
 python scripts/run_e2e_spec.py \
     --dataset data/phase3_dataset.jsonl --split test \
-    --lora_dir ./probe_ckpt/lora \
+    --probe_path ./probe_ckpt \
     --async_probe --probe_batch_rounds 6 --defer_final_flush \
     --out outputs/three_gpu_A2_Z3br6.json
 ```
@@ -210,7 +210,7 @@ deployment config.**
 for br in 1 2 4 6; do
   SAFESPEC_SINGLE_GPU=0 python scripts/run_e2e_spec.py \
       --dataset data/phase3_dataset.jsonl --split test \
-      --lora_dir ./probe_ckpt/lora \
+      --probe_path ./probe_ckpt \
       --async_probe --probe_batch_rounds $br --defer_final_flush \
       --out outputs/Z3_br${br}.json
 done

@@ -55,7 +55,16 @@ def main():
                         default="experiment/data/phase3_dataset.jsonl")
     parser.add_argument("--split", type=str, default="test",
                         help="which split to evaluate (default: test)")
-    parser.add_argument("--lora_dir", type=str, default=None)
+    parser.add_argument("--probe_path", type=str, default=None,
+                        help="Path to the probe model dir.  If it contains "
+                             "both model.safetensors and hijack_head.pt "
+                             "(merged HF-release layout), LoRA is already "
+                             "fused -- leave --lora_dir unset.  Otherwise "
+                             "this should point at a base Qwen3Guard-Stream "
+                             "and you MUST also pass --lora_dir.")
+    parser.add_argument("--lora_dir", type=str, default=None,
+                        help="OPTIONAL external LoRA adapter dir.  Leave "
+                             "unset when --probe_path points at merged weights.")
     parser.add_argument("--k", type=int, default=DECODE_CFG.draft_k)
     parser.add_argument("--max_new_tokens", type=int, default=DECODE_CFG.max_new_tokens)
     parser.add_argument("--limit", type=int, default=None)
@@ -91,12 +100,22 @@ def main():
                         help="Optional tag appended to the output filename")
     args = parser.parse_args()
 
-    if args.lora_dir is None:
+    # Backwards-compat: if neither --probe_path nor --lora_dir is set, fall
+    # back to the legacy "find the latest phase3_lora_* under OUTPUTS_DIR"
+    # behaviour.  Downstream (BatchedGuardProbe) handles both merged and
+    # base+LoRA layouts automatically based on which args are set.
+    if args.probe_path is None and args.lora_dir is None:
         cands = sorted(OUTPUTS_DIR.glob("phase3_lora_*"))
         if not cands:
-            raise SystemExit("No phase3_lora_* dir found")
+            raise SystemExit("No --probe_path / --lora_dir given and no "
+                             "phase3_lora_* dir found under OUTPUTS_DIR")
         args.lora_dir = str(cands[-1])
-    log.info("Using LoRA dir: %s", args.lora_dir)
+        log.info("Using legacy LoRA dir: %s", args.lora_dir)
+    elif args.probe_path is not None:
+        log.info("Using probe_path: %s   (lora_dir=%s)",
+                 args.probe_path, args.lora_dir)
+    else:
+        log.info("Using LoRA dir: %s", args.lora_dir)
 
     rows = load_rows(Path(args.dataset), args.split)
     log.info("Loaded %d rows from split=%s", len(rows), args.split)
@@ -120,11 +139,12 @@ def main():
         log.info("BASELINE-ONLY mode: SpecDecoder without probe "
                  "(LoRA / use_compile / use_stream / async_probe all IGNORED)")
     else:
-        probe = BatchedGuardProbe(
-            lora_dir=args.lora_dir,
-            use_compile=args.use_compile,
-            use_stream=args.use_stream,
-        )
+        probe_kwargs = dict(lora_dir=args.lora_dir,
+                            use_compile=args.use_compile,
+                            use_stream=args.use_stream)
+        if args.probe_path is not None:
+            probe_kwargs["model_path"] = args.probe_path
+        probe = BatchedGuardProbe(**probe_kwargs)
         engine_kwargs = {"probe": probe,
                          "async_probe": args.async_probe,
                          "probe_batch_rounds": args.probe_batch_rounds,

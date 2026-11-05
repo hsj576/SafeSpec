@@ -98,10 +98,26 @@ class BatchedGuardProbe:
             model_path, torch_dtype=dtype, trust_remote_code=True,
         ).to(self.device).eval()
 
-        # Optional LoRA adapter + hijack head (Phase 3 route B)
+        # Optional LoRA adapter + hijack head (Phase 3 route B).
+        #
+        # Three loading modes are supported:
+        #   (A) zero-shot:              lora_dir=None, no hijack_head.pt in
+        #                               model_path  ->  pure Qwen3Guard-Stream
+        #   (B) base + external LoRA:   lora_dir=<adapter dir>           (legacy)
+        #   (C) pre-merged single dir:  lora_dir=None, hijack_head.pt sits
+        #                               next to model.safetensors in model_path
+        #                               (what HuggingFace users get when they
+        #                               `huggingface-cli download husj576/
+        #                               safespec-probe-qwen3guard-stream-0.6b`)
         self.has_lora = False
         self.hijack_head: Optional[nn.Linear] = None
+        hidden_size = self.model.config.hidden_size
+
+        merged_head_path = Path(model_path) / "hijack_head.pt"
+        use_merged = lora_dir is None and merged_head_path.is_file()
+
         if lora_dir is not None:
+            # --- mode B: base + external LoRA ---
             try:
                 from peft import PeftModel
             except ImportError:
@@ -109,7 +125,6 @@ class BatchedGuardProbe:
             log.info("Attaching LoRA adapter from %s", lora_dir)
             self.model.model = PeftModel.from_pretrained(self.model.model, lora_dir)
             self.model.model.eval()
-            hidden_size = self.model.config.hidden_size
             self.hijack_head = nn.Linear(hidden_size, 1).to(device=self.device,
                                                               dtype=dtype)
             head_state = torch.load(f"{lora_dir}/hijack_head.pt",
@@ -118,6 +133,21 @@ class BatchedGuardProbe:
             self.hijack_head.eval()
             self.has_lora = True
             log.info("LoRA + hijack_head loaded.  Probe now in LoRA mode.")
+        elif use_merged:
+            # --- mode C: pre-merged weights, only load hijack_head ---
+            log.info("Detected merged checkpoint "
+                     "(hijack_head.pt alongside model.safetensors).  "
+                     "Loading hijack head only; LoRA is already fused into "
+                     "the backbone.")
+            self.hijack_head = nn.Linear(hidden_size, 1).to(device=self.device,
+                                                              dtype=dtype)
+            head_state = torch.load(str(merged_head_path),
+                                    map_location=self.device, weights_only=True)
+            self.hijack_head.load_state_dict(head_state)
+            self.hijack_head.eval()
+            self.has_lora = True
+            log.info("hijack_head loaded.  Probe now in LoRA mode (merged).")
+        # else: mode A (zero-shot) — nothing extra to do.
 
         self.kv: Optional[DynamicCache] = None
         self.max_unsafe_prob: float = 0.0

@@ -102,7 +102,7 @@ huggingface-cli download husj576/safespec-probe-qwen3guard-stream-0.6b \
 SAFESPEC_SINGLE_GPU=0 python scripts/run_e2e_spec.py \
     --dataset data/phase3_dataset.jsonl \
     --split test \
-    --lora_dir ./probe_ckpt/lora \
+    --probe_path ./probe_ckpt \
     --async_probe \
     --probe_batch_rounds 6 \
     --defer_final_flush \
@@ -180,13 +180,13 @@ adapter（`lora/`, ~17 MB），两种加载方式可按需选择。
 SAFESPEC_SINGLE_GPU=0 python scripts/run_e2e_spec.py \
     --dataset data/phase3_dataset.jsonl \
     --split test \
-    --lora_dir ./probe_ckpt/lora \
+    --probe_path ./probe_ckpt \
     --async_probe --probe_batch_rounds 6 --defer_final_flush \
     --out outputs/e2e_single_gpu_A2_Z3_br6.json
 
 # 离线参照（τ=0.9 下应与流式差不超过 1 样本）
 python scripts/eval_probe_offline.py \
-    --lora_dir ./probe_ckpt/lora \
+    --probe_path ./probe_ckpt \
     --dataset data/phase3_dataset.jsonl \
     --out outputs/offline.json
 
